@@ -18,105 +18,77 @@ interface Product {
 
 interface CartContext {
   products: Product[];
-  addToCart(item: Omit<Product, 'quantity'>): void;
+  addToCart(item: Product): void;
   increment(id: string): void;
   decrement(id: string): void;
 }
 
 const CartContext = createContext<CartContext | null>(null);
 
+function incrementState(productsPrevState: Product[], id: string): Product[] {
+  return productsPrevState.map(productItem => {
+    if (productItem.id === id) {
+      return { ...productItem, quantity: productItem.quantity + 1 };
+    }
+
+    return productItem;
+  });
+}
+
 const CartProvider: React.FC = ({ children }) => {
   const [products, setProducts] = useState<Product[]>([]);
 
   useEffect(() => {
     async function loadProducts(): Promise<void> {
-      const storedProducts = await AsyncStorage.getItem(
-        '@GoMarketplace:products',
-      );
+      const items = await AsyncStorage.getItem('@GoMarketplace:cart');
 
-      if (storedProducts) setProducts(JSON.parse(storedProducts));
+      if (items) {
+        setProducts(JSON.parse(items) as Product[]);
+      }
     }
 
     loadProducts();
   }, []);
 
+  const addToCart = useCallback(product => {
+    setProducts(productsPrevState => {
+      const existentProductIndex = productsPrevState.findIndex(
+        productItem => productItem.id === product.id,
+      );
+
+      if (existentProductIndex !== -1) {
+        return incrementState(productsPrevState, product.id);
+      }
+      return [...productsPrevState, { ...product, quantity: 1 }];
+    });
+  }, []);
+
+  const increment = useCallback(async id => {
+    setProducts(productsPrevState => incrementState(productsPrevState, id));
+  }, []);
+
+  const decrement = useCallback(async id => {
+    setProducts(productsPrevState => {
+      return productsPrevState.map(productItem => {
+        if (productItem.id === id && productItem.quantity > 1) {
+          return { ...productItem, quantity: productItem.quantity - 1 };
+        }
+
+        return productItem;
+      });
+    });
+  }, []);
+
   useEffect(() => {
-    async function updateStoredProducts(): Promise<void> {
+    async function storeProductData(): Promise<void> {
       await AsyncStorage.setItem(
-        '@GoMarketplace:products',
+        '@GoMarketplace:cart',
         JSON.stringify(products),
       );
     }
 
-    updateStoredProducts();
+    storeProductData();
   }, [products]);
-
-  const addToCart = useCallback(
-    async ({ id, title, image_url, price }: Omit<Product, 'quantity'>) => {
-      const checkIfNewProduct = products.find(product => product.id === id);
-
-      if (!checkIfNewProduct) {
-        setProducts(oldProducts => [
-          ...oldProducts,
-          { id, title, image_url, price, quantity: 1 },
-        ]);
-
-        return;
-      }
-
-      const updatedProducts = products.map(product => {
-        if (product.id !== id) return product;
-
-        const updatedProduct = {
-          ...product,
-          quantity: product.quantity += 1,
-        };
-
-        return updatedProduct;
-      });
-
-      setProducts(updatedProducts);
-    },
-    [products],
-  );
-
-  const increment = useCallback(
-    async id => {
-      const updatedProducts = products.map(product => {
-        if (product.id !== id) return product;
-
-        const updatedProduct = {
-          ...product,
-          quantity: product.quantity += 1,
-        };
-
-        return updatedProduct;
-      });
-
-      setProducts(updatedProducts);
-    },
-    [products],
-  );
-
-  const decrement = useCallback(
-    async id => {
-      const updatedProducts = products
-        .map(product => {
-          if (product.id !== id) return product;
-
-          const updatedProduct = {
-            ...product,
-            quantity: product.quantity -= 1,
-          };
-
-          return updatedProduct;
-        })
-        .filter(product => product.quantity > 0);
-
-      setProducts(updatedProducts);
-    },
-    [products],
-  );
 
   const value = React.useMemo(
     () => ({ addToCart, increment, decrement, products }),
